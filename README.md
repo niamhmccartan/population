@@ -41,13 +41,47 @@ ________________________________________________________________________________
 
 _Pop_full.csv_: observations of burden and population size
 
+```
+Rep: Sample number for the _Daphnia_ being observed that week (6 replicated for burden, 2 replicates for populaiton)
+Temp: target baseline tempetature 
+Real_Temp: the true temperature per bath read from the HOBO loggers at the end of the experiment 
+Treat: If the treatment was control (C), or given a heatwave (HW) or cold snap (CS)
+Pulse: If the treatment was given a thermal pulse, either yes (Y) or no (N)
+Bucket: Number of the bucket per treatment (1 to 5)
+Bath: Which bath the bucket was in (A, B, or C). 
+Date: Date of observation 
+Week: The week that the observation was taken (1 to 9)
+BACIplus: Which period the week fell into, before, during, just after, after, constant 
+BACIplus_CC: Same as back but compartmentalising the constants into periods too 
+Infection: If the host was infected, presence (1) or absence (0)
+Spores: Number of spores present, 0 if nothing 
+Adults: number of adults in the population
+Notes: Any important noted given when measurements were taken 
+Include: Yes if included in analyssi, no if excluded
+```
+
 _Exp_comp.csv_: observations for burden in the individual level (heatwave and cold snap) experiment and relevant population data (from during the thermal variation
+
+```
+Exp: Which experiment the data came from, population (POP), heatwave (HW) or cold snap (CS) experiemnts
+Period: Which period the measuement fell into, before, during, just after, after, constant 
+A_Temp: target baseline tempetature 
+Real_Avg:the true temperature per bath read from the HOBO loggers at the end of the experiment 
+Treat: If the treatment was control (C), or given a heatwave (HW) or cold snap (CS)
+Rep: Sample number for the _Daphnia_ being observed
+Bath: Which bath the bucket _Daphnia_ was in (A, B, or C)
+Day: The day of the measurement
+Infection: If the host was infected, presence (1) or absence (0)
+Spores: Number of spores present if infected, if exposed but uninfected NA entered
+Exposed: Number of spores present, 0 if nothing 
+```
 
 _HOBO_temps.xlsx_: temperature data per bath per hour, also with overall mean temperature
 
-
-
-
-
-
--------------------------------------------------------------------------
+```
+#: Time point recording ID
+Date Time, GMT+00:00: Date and time of time point recording 	
+Temp, °C: Temperature recorded					
+Average Temp: Average temperature only including temperature points ±2 degrees
+Logger ID: Logger ID used for the specific bath
+```
