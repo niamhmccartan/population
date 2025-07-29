@@ -29,4 +29,25 @@ For population size, predictor variables included baseline temperature (cubic), 
 
 Custom contrasts were performed with the emmeans package, adjusting p-values with the Benjamini–Hochberg method for multiple comparisons. Results were compared to individual-level findings from previous studies to link host-level responses with population-level outcomes.
 
+-----------------------------------------------------------------------------------------
+
+**R scripts for analysis**
+
+_Pop_Analysis.Rmd_: analysis and graphing for the the whole manuscript including populaiton-level and individual-level analysis.
+
+_________________________________________________________________________________________
+
+**List of datasets used for analysis**_
+
+_Pop_full.csv_: observations of burden and population size
+
+_Exp_comp.csv_: observations for burden in the individual level (heatwave and cold snap) experiment and relevant population data (from during the thermal variation
+
+_HOBO_temps.xlsx_: temperature data per bath per hour, also with overall mean temperature
+
+
+
+
+
+
 -------------------------------------------------------------------------
