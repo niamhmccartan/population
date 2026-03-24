@@ -1,0 +1,1002 @@
+---
+title: "Pop_1.0"
+output: html_document
+date: "2026-03-24"
+---
+
+###Library Set Up
+
+```{r Library Setup}
+#creating percentages and tidying data
+library(dplyr)
+#perform glmm
+library(glmmTMB)
+#perform analysis of deviance
+library(car)
+#check for multicolinearity
+library(performance)
+#perform a glm.nb
+library(MASS)
+#post-hoc contrasts in models 
+library(emmeans)
+#GGPlot Packages
+library(ggplot2)
+```
+
+###Import and Clean Data 
+
+```{r Import data set}
+full <- read.csv("Pop_full.csv") 
+```
+```{r Remove any unsuitable data points}
+pop <- subset(full, Include == "Yes")
+```
+```{r Set variables}
+pop$Temp <- as.numeric(pop$Temp)
+pop$Real_Temp <- as.numeric(pop$Real_Temp)
+pop$Treat <- as.factor(pop$Treat)
+pop$Bucket <- as.character(pop$Bucket)
+pop$Week <- as.numeric(pop$Week)
+pop$PulsevControl <- as.factor(pop$PulsevControl)
+pop$Time_Period <- as.factor(pop$Time_Period)
+pop$TP_CC <- as.factor(pop$TP_CC)
+pop$Infection <- as.numeric(pop$Infection)
+pop$Spores <- as.numeric(pop$Spores)
+pop$Adults <- as.numeric(pop$Adults)
+```
+```{r Centre average temperature}
+# Centering the 'Real_Temp' variable
+pop$Temp_Cent <- scale(pop$Real_Temp, center = TRUE, scale = FALSE)
+pop$Temp_Cent <- as.numeric(pop$Temp_Cent)
+
+pop$A_Temp <- as.factor(pop$Temp)
+```
+```{r Specifying order of factors}
+pop$Time_Period <- factor(pop$Time_Period, levels = c("B","D","JA","A"))
+pop$TP_CC <- factor(pop$TP_CC, levels = c("CB","CD","CJA","CA","PB","PD","PJA","PA"))
+```
+```{r Adding standard errors for overall trends}
+pop <- pop %>%
+  group_by(Temp, Treat, Week) %>% 
+  mutate(
+    # Calculations for Spores overall
+    mean.BO = mean(Spores, na.rm = TRUE),
+    sd.BO = sd(Spores, na.rm = TRUE),
+    se.BO = sd.BO / sqrt(sum(!is.na(Spores))),  # Use sum(!is.na()) to count non-NA values
+    
+    # Calculations for Adults overall
+    mean.AO = mean(Adults, na.rm = TRUE),
+    sd.AO = sd(Adults, na.rm = TRUE),
+    se.AO = sd.AO / sqrt(sum(!is.na(Adults)))  # Use sum(!is.na()) to count non-NA values
+  ) %>%
+  ungroup()
+```
+```{r Subset out heatwaves and cold snaps}
+hw <- droplevels(subset(pop, A_Temp %in% c("14","17")))
+cs <- droplevels(subset(pop, A_Temp %in% c("20","23")))
+
+hw$Time_Period <- factor(hw$Time_Period, levels = c("B","D","JA","A"))
+cs$Time_Period <- factor(cs$Time_Period, levels = c("B","D","JA","A"))
+
+hw$PulsevControl <- factor(hw$PulsevControl, levels = c("C","P"))
+cs$PulsevControl <- factor(cs$PulsevControl, levels = c("C","P"))
+```
+```{r Subset by temperature for graphing}
+fourteen    <- droplevels(subset(pop, A_Temp == "14"))
+seventeen   <- droplevels(subset(pop, A_Temp == "17"))
+twenty      <- droplevels(subset(pop, A_Temp == "20"))
+twentythree <- droplevels(subset(pop, A_Temp == "23"))
+```
+
+###Burden Model
+
+```{r Heatwave Burden}
+hw_burden <- glmmTMB(Spores ~ poly(Temp_Cent, 2) * PulsevControl * Time_Period + poly(Temp_Cent, 2) * Adults + (1|Bucket), 
+                 data = hw, 
+                 family = nbinom12)
+
+summary(hw_burden)
+
+# Perform Type II (default) or Type III ANOVA
+Anova(hw_burden, type = "II")
+```
+
+
+
+
+```{r Cold snap Burden}
+cs_burden <- glmmTMB(Spores ~ poly(Temp_Cent, 2) * PulsevControl * Time_Period + poly(Temp_Cent, 2) * Adults + (1|Bucket), 
+                 data = cs, 
+                 family = nbinom12 )
+
+summary(cs_burden)
+
+# Perform Type II (default) or Type III ANOVA
+Anova(cs_burden, type = "II")
+```
+
+###Temperature Specific Burden Models 
+
+```{r Fourteen burden}
+fourteen_burden <- glmmTMB(Spores ~ PulsevControl * Time_Period + Adults + (1|Bucket), 
+                 data = fourteen, 
+                 family = nbinom12)
+
+summary(fourteen_burden)
+
+# Perform Type II (default) or Type III ANOVA
+Anova(fourteen_burden, type = "II")
+```
+```{r Seventeen burden}
+seventeen_burden <- glmmTMB(Spores ~ PulsevControl * Time_Period + Adults + (1|Bucket), 
+                 data = seventeen, 
+                 family = nbinom12)
+
+summary(seventeen_burden)
+
+# Perform Type II (default) or Type III ANOVA
+Anova(seventeen_burden, type = "II")
+
+####high variance at 17 between buckets might be why it shows weird figures
+```
+```{r Twenty burden}
+twenty_burden <- glmmTMB(Spores ~ PulsevControl * Time_Period + Adults + (1|Bucket), 
+                 data = twenty, 
+                 family = nbinom2)
+
+summary(twenty_burden)
+
+# Perform Type II (default) or Type III ANOVA
+Anova(twenty_burden, type = "II")
+```
+```{r Twenty three burden}
+twentythree_burden <- glmmTMB(Spores ~ PulsevControl * Time_Period + Adults + (1|Bucket), 
+                 data = twentythree, 
+                 family = nbinom12)
+
+summary(twentythree_burden)
+
+# Perform Type II (default) or Type III ANOVA
+Anova(twentythree_burden, type = "II")
+```
+
+###Burden Custom Contrasts
+
+```{r Time Periods}
+CB  = c(1,0,0,0,0,0,0,0)
+PB  = c(0,1,0,0,0,0,0,0)
+CD  = c(0,0,1,0,0,0,0,0)
+PD  = c(0,0,0,1,0,0,0,0)
+CJA = c(0,0,0,0,1,0,0,0)
+PJA = c(0,0,0,0,0,1,0,0)
+CA  = c(0,0,0,0,0,0,1,0)
+PA  = c(0,0,0,0,0,0,0,1)
+```
+
+```{r Quick Check to make sure they match up}
+emmeans(fourteen_burden, ~ PulsevControl * Time_Period)
+```
+
+
+```{r}
+burden_contrasts <- list(
+  "C_B vs P_B"   = CB - PB,
+  "C_D vs P_D"   = CD - PD,
+  "C_JA vs P_JA" = CJA - PJA,
+  "C_A vs P_A"   = CA - PA,
+  "P_B vs P_D"   = PB - PD,
+  "P_B vs P_JA"  = PB - PJA,
+  "P_B vs P_A"   = PB - PA
+)
+
+contrast(emmeans(fourteen_burden,    ~ PulsevControl * Time_Period), method = burden_contrasts, adjust = "BH")
+contrast(emmeans(seventeen_burden,   ~ PulsevControl * Time_Period), method = burden_contrasts, adjust = "BH")
+contrast(emmeans(twenty_burden,      ~ PulsevControl * Time_Period), method = burden_contrasts, adjust = "BH")
+contrast(emmeans(twentythree_burden, ~ PulsevControl * Time_Period), method = burden_contrasts, adjust = "BH")
+```
+
+###Graphing Burden
+
+  theme(legend.position = "top",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 18)) +
+  guides(shape = guide_legend(override.aes = list(size = 3))) # Adjust legend appearance
+
+```{r fourteen burden}
+fourteen.burden <- ggplot(fourteen, aes(x = Week, y = Spores, colour = Treat, shape = Treat, fill = Treat)) +
+  geom_rect(aes(xmin = 5.5, xmax = Inf, ymin = -Inf, ymax = Inf),
+            fill = "#FFF1E6", alpha = 0.4, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = 5.5, xmax = 6.5, ymin = -Inf, ymax = Inf),
+            fill = "#FFE2CC", alpha = 0.2, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = 4.5, xmax = 5.5, ymin = -Inf, ymax = Inf),
+            fill = "#FFD4B3", alpha = 0.4, inherit.aes = FALSE) +
+  geom_smooth(aes(x = Week, y = Spores, colour = Treat),
+              method = "glm.nb", formula = y ~ poly(x, 2), se = F, linewidth = 0.75, lty = "dashed") +
+  stat_summary(fun = "mean", geom = "point", size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = mean.BO - se.BO, ymax = mean.BO + se.BO), 
+                width = 0.2, position = position_dodge(width = 0.4)) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21,24)) +  
+  scale_colour_manual(values = c("#999999", "#D55E00")) +
+  scale_fill_manual(values = c("#999999", "#D55E00")) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  scale_x_continuous(breaks=seq(1,9,1)) +
+  coord_cartesian(ylim = c(0, 800))
+
+fourteen.burden
+
+
+ggsave("fourteen.burden.png", width = 8, height = 6)
+```
+```{r seventeen burden}
+seventeen.burden <- ggplot(seventeen, aes(x = Week, y = Spores, colour = Treat, shape = Treat, fill = Treat)) +
+  geom_rect(aes(xmin = 5.5, xmax = Inf, ymin = -Inf, ymax = Inf),
+            fill = "#FFF1E6", alpha = 0.4, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = 5.5, xmax = 6.5, ymin = -Inf, ymax = Inf),
+            fill = "#FFE2CC", alpha = 0.2, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = 4.5, xmax = 5.5, ymin = -Inf, ymax = Inf),
+            fill = "#FFD4B3", alpha = 0.4, inherit.aes = FALSE) +
+  geom_smooth(aes(x = Week, y = Spores, colour = Treat),
+              method = "glm.nb", formula = y ~ poly(x, 2), se = F, linewidth = 0.75, lty = "dashed") +
+  stat_summary(fun = "mean", geom = "point", size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = mean.BO - se.BO, ymax = mean.BO + se.BO), 
+                width = 0.2, position = position_dodge(width = 0.4)) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21, 24), labels = c("constant", "heatwave")) +  
+  scale_colour_manual(values = c("#999999", "#D55E00"), labels = c("constant", "heatwave")) +
+  scale_fill_manual(values = c("#999999", "#D55E00"), labels = c("constant", "heatwave")) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  scale_y_continuous(position = "right") +
+  scale_x_continuous(breaks = seq(1, 9, 1)) +
+  coord_cartesian(ylim = c(0, 800)) 
+
+seventeen.burden
+
+ggsave("seventeen.burden.png", width = 8, height = 6)
+```
+```{r twenty burden}
+twenty.burden <- ggplot(twenty, aes(x = Week, y = Spores, colour = Treat, shape = Treat, fill = Treat)) +
+  geom_rect(aes(xmin = 5.5, xmax = Inf, ymin = -Inf, ymax = Inf),
+            fill = "#E6F6FF", alpha = 0.4, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = 5.5, xmax = 6.5, ymin = -Inf, ymax = Inf),
+            fill = "#CCECFF", alpha = 0.2, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = 4.5, xmax = 5.5, ymin = -Inf, ymax = Inf),
+            fill = "#B3E3FF", alpha = 0.4, inherit.aes = FALSE) +
+  geom_smooth(aes(x = Week, y = Spores, colour = Treat),
+              method = "glm.nb", formula = y ~ poly(x, 2), se = F, linewidth = 0.75, lty = "dashed") +
+  stat_summary(fun = "mean", geom = "point", size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = mean.BO - se.BO, ymax = mean.BO + se.BO), 
+                width = 0.2, position = position_dodge(width = 0.4)) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill = NA, size = 1)) +
+  scale_shape_manual(values = c(21, 25)) +  
+  scale_colour_manual(values = c("#999999", "#0072B2")) +
+  scale_fill_manual(values = c("#999999", "#0072B2")) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  scale_x_continuous(breaks = seq(1, 9, 1)) +
+  coord_cartesian(ylim = c(0, 800))
+
+twenty.burden
+
+ggsave("twenty.burden.png", width = 8, height = 6)
+```
+```{r twenty three burden}
+twentythree.burden <- ggplot(twentythree, aes(x = Week, y = Spores, colour = Treat, shape = Treat, fill = Treat)) +
+  geom_rect(aes(xmin = 5.5, xmax = Inf, ymin = -Inf, ymax = Inf),
+            fill = "#E6F6FF", alpha = 0.4, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = 5.5, xmax = 6.5, ymin = -Inf, ymax = Inf),
+            fill = "#CCECFF", alpha = 0.2, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = 4.5, xmax = 5.5, ymin = -Inf, ymax = Inf),
+            fill = "#B3E3FF", alpha = 0.4, inherit.aes = FALSE) +
+  geom_smooth(aes(x = Week, y = Spores, colour = Treat),
+              method = "glm.nb", formula = y ~ poly(x, 2), se = F, linewidth = 0.75, lty = "dashed") +
+  stat_summary(fun = "mean", geom = "point", size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = mean.BO - se.BO, ymax = mean.BO + se.BO), 
+                width = 0.2, position = position_dodge(width = 0.4)) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21,25)) +  
+  scale_colour_manual(values = c("#999999", "#0072B2")) +
+  scale_fill_manual(values = c("#999999", "#0072B2")) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  scale_y_continuous(position = "right") +
+  scale_x_continuous(breaks=seq(1,9,1)) +
+  coord_cartesian(ylim = c(0, 800))
+
+twentythree.burden
+
+ggsave("twentythree.burden.png", width = 8, height = 6)
+```
+
+###Graphing Population vs Burden
+
+```{r subsetting for means by treatment}
+fourteen.week.combo <- fourteen %>%
+  group_by(Week) %>%
+  summarise(Avg_Adults = mean(Adults, na.rm = TRUE),
+            Mean_Spores = mean(Spores, na.rm = TRUE),
+            SE_Spores = sd(Spores, na.rm = TRUE) / sqrt(n()),
+            SE_Adults = sd(Adults, na.rm = TRUE) / sqrt(n()),# standard error
+            .groups = "drop")
+
+seventeen.week.combo <- seventeen %>%
+  group_by(Week) %>%
+  summarise(Avg_Adults = mean(Adults, na.rm = TRUE),
+            Mean_Spores = mean(Spores, na.rm = TRUE),
+            SE_Spores = sd(Spores, na.rm = TRUE) / sqrt(n()),
+            SE_Adults = sd(Adults, na.rm = TRUE) / sqrt(n()),# standard error
+            .groups = "drop")
+
+twenty.week.combo <- twenty %>%
+  group_by(Week) %>%
+  summarise(Avg_Adults = mean(Adults, na.rm = TRUE),
+            Mean_Spores = mean(Spores, na.rm = TRUE),
+            SE_Spores = sd(Spores, na.rm = TRUE) / sqrt(n()),
+            SE_Adults = sd(Adults, na.rm = TRUE) / sqrt(n()),# standard error
+            .groups = "drop")
+
+# Aggregate to mean adults per day-treatment
+twentythree.week.combo <- twentythree %>%
+  group_by(Week) %>%
+  summarise(Avg_Adults = mean(Adults, na.rm = TRUE),
+            Mean_Spores = mean(Spores, na.rm = TRUE),
+            SE_Spores = sd(Spores, na.rm = TRUE) / sqrt(n()),
+            SE_Adults = sd(Adults, na.rm = TRUE) / sqrt(n()),# standard error
+            .groups = "drop")
+
+```
+
+```{r fourteen population vs burden combined}
+fourteen.pvb.combo <- ggplot(fourteen.week.combo, aes(x = Avg_Adults, y = Mean_Spores)) +
+  geom_point(size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = Mean_Spores - SE_Spores, ymax = Mean_Spores + SE_Spores), 
+                width = 0.2, linewidth = 0.6, position = position_dodge(width = 0.4)) +
+  geom_smooth(method = "glm", formula = y ~ poly(x, 2, raw = TRUE), 
+              se = FALSE, linetype = "dashed", linewidth = 0.75) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21,24)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  coord_cartesian(xlim = c(300,600), ylim = c(0,800))
+
+fourteen.pvb.combo
+
+ggsave("fourteen.pvb.combo.png", width = 8, height = 6)
+```
+```{r seventeen population vs burden combined}
+seventeen.pvb.combo <- ggplot(seventeen.week.combo, aes(x = Avg_Adults, y = Mean_Spores)) +
+  geom_point(size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = Mean_Spores - SE_Spores, ymax = Mean_Spores + SE_Spores), 
+                width = 0.2, linewidth = 0.6, position = position_dodge(width = 0.4)) +
+  geom_smooth(method = "glm", formula = y ~ poly(x, 2, raw = TRUE), 
+              se = FALSE, linetype = "dashed", linewidth = 0.75) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21,24)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  scale_y_continuous(position = "right") +
+  coord_cartesian(xlim = c(300,600), ylim = c(0,800))
+
+seventeen.pvb.combo
+
+ggsave("seventeen.pvb.combo.png", width = 8, height = 6)
+```
+```{r twenty population vs burden combined}
+twenty.pvb.combo <- ggplot(twenty.week.combo, aes(x = Avg_Adults, y = Mean_Spores)) +
+  geom_point(size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = Mean_Spores - SE_Spores, ymax = Mean_Spores + SE_Spores), 
+                width = 0.2, linewidth = 0.6, position = position_dodge(width = 0.4)) +
+  geom_smooth(method = "glm", formula = y ~ poly(x, 2, raw = TRUE), 
+              se = FALSE, linetype = "dashed", linewidth = 0.75) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21,24)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  coord_cartesian(xlim = c(300,600), ylim = c(0,800))
+
+twenty.pvb.combo
+
+ggsave("twenty.pvb.combo.png", width = 8, height = 6)
+```
+```{r twenty three population vs burden combined}
+twentythree.pvb.combo <- ggplot(twentythree.week.combo, aes(x = Avg_Adults, y = Mean_Spores)) +
+  geom_point(size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = Mean_Spores - SE_Spores, ymax = Mean_Spores + SE_Spores), 
+                width = 0.2, linewidth = 0.6, position = position_dodge(width = 0.4)) +
+  geom_smooth(method = "glm", formula = y ~ poly(x, 2, raw = TRUE), 
+              se = FALSE, linetype = "dashed", linewidth = 0.75) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21,24)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  scale_y_continuous(position = "right") +
+  coord_cartesian(xlim = c(300,600), ylim = c(0,800))
+
+twentythree.pvb.combo
+
+ggsave("twentythree.pvb.combo.png", width = 8, height = 6)
+```
+
+###Population Size Model
+
+```{r Heatwave Pop}
+hw_pop <- glmmTMB(Adults ~ poly(Temp_Cent, 3) * PulsevControl * Time_Period + poly(Temp_Cent, 3) + (1|Bucket), 
+                 data = hw, 
+                 family = nbinom12)
+
+summary(hw_pop)
+
+# Perform Type II (default) or Type III ANOVA
+Anova(hw_pop, type = "II")
+```
+
+```{r Cold snap Pop}
+cs_pop <- glmmTMB(Adults ~ poly(Temp_Cent, 3) * PulsevControl * Time_Period + poly(Temp_Cent, 3) + (1|Bucket), 
+                 data = cs, 
+                 family = nbinom12 )
+
+summary(cs_pop)
+
+# Perform Type II (default) or Type III ANOVA
+Anova(cs_pop, type = "II")
+```
+
+###Temperature Specific Population Models 
+
+```{r Fourteen pop}
+fourteen_pop <- glmmTMB(Adults ~ PulsevControl * Time_Period + (1|Bucket), 
+                 data = fourteen, 
+                 family = nbinom12)
+
+summary(fourteen_pop)
+
+# Perform Type II (default) or Type III ANOVA
+Anova(fourteen_pop, type = "II")
+```
+```{r Seventeen pop}
+seventeen_pop <- glmmTMB(Adults ~ PulsevControl * Time_Period + (1|Bucket), 
+                 data = seventeen, 
+                 family = nbinom12)
+
+summary(seventeen_pop)
+
+# Perform Type II (default) or Type III ANOVA
+Anova(seventeen_pop, type = "II")
+
+####high variance at 17 between buckets might be why it shows weird figures
+```
+```{r Twenty pop}
+twenty_pop <- glmmTMB(Adults ~ PulsevControl * Time_Period + (1|Bucket), 
+                 data = twenty, 
+                 family = nbinom2)
+
+summary(twenty_pop)
+
+# Perform Type II (default) or Type III ANOVA
+Anova(twenty_pop, type = "II")
+```
+```{r Twenty three pop}
+twentythree_pop <- glmmTMB(Adults ~ PulsevControl * Time_Period + (1|Bucket), 
+                 data = twentythree, 
+                 family = nbinom12)
+
+summary(twentythree_pop)
+
+# Perform Type II (default) or Type III ANOVA
+Anova(twentythree_pop, type = "II")
+```
+
+###Population Size Custom Contrasts
+
+```{r Time Periods}
+CB  = c(1,0,0,0,0,0,0,0)
+PB  = c(0,1,0,0,0,0,0,0)
+CD  = c(0,0,1,0,0,0,0,0)
+PD  = c(0,0,0,1,0,0,0,0)
+CJA = c(0,0,0,0,1,0,0,0)
+PJA = c(0,0,0,0,0,1,0,0)
+CA  = c(0,0,0,0,0,0,1,0)
+PA  = c(0,0,0,0,0,0,0,1)
+```
+
+```{r Quick Check to make sure they match up}
+emmeans(fourteen_pop, ~ PulsevControl * Time_Period)
+```
+
+
+```{r}
+pop_contrasts <- list(
+  "C_B vs P_B"   = CB - PB,
+  "C_D vs P_D"   = CD - PD,
+  "C_JA vs P_JA" = CJA - PJA,
+  "C_A vs P_A"   = CA - PA,
+  "P_B vs P_D"   = PB - PD,
+  "P_B vs P_JA"  = PB - PJA,
+  "P_B vs P_A"   = PB - PA
+)
+
+contrast(emmeans(fourteen_burden,    ~ PulsevControl * Time_Period), method = pop_contrasts, adjust = "BH")
+contrast(emmeans(seventeen_burden,   ~ PulsevControl * Time_Period), method = pop_contrasts, adjust = "BH")
+contrast(emmeans(twenty_burden,      ~ PulsevControl * Time_Period), method = pop_contrasts, adjust = "BH")
+contrast(emmeans(twentythree_burden, ~ PulsevControl * Time_Period), method = pop_contrasts, adjust = "BH")
+```
+
+###Graphing Population
+
+```{r fourteen population}
+fourteen.population <- ggplot(fourteen, aes(x = Week, y = Adults, colour = Treat, shape = Treat, fill = Treat)) +
+  geom_rect(aes(xmin = 5.5, xmax = Inf, ymin = -Inf, ymax = Inf),
+            fill = "#FFF1E6", alpha = 0.4, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = 5.5, xmax = 6.5, ymin = -Inf, ymax = Inf),
+            fill = "#FFE2CC", alpha = 0.2, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = 4.5, xmax = 5.5, ymin = -Inf, ymax = Inf),
+            fill = "#FFD4B3", alpha = 0.4, inherit.aes = FALSE) +
+  geom_smooth(aes(x = Week, y = Adults, colour = Treat),
+              method = "glm.nb", formula = y ~ poly(x, 3), se = F, linewidth = 0.75, lty = "dashed") +
+  stat_summary(fun = "mean", geom = "point", size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = mean.AO - se.AO, ymax = mean.AO + se.AO), 
+                width = 0.2, position = position_dodge(width = 0.4)) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21,24)) +  
+  scale_colour_manual(values = c("#999999", "#D55E00")) +
+  scale_fill_manual(values = c("#999999", "#D55E00")) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  scale_x_continuous(breaks=seq(1,9,1)) +
+  coord_cartesian(ylim = c(0, 800))
+
+fourteen.population
+
+ggsave("fourteen.population.png", width = 8, height = 6)
+```
+```{r seventeen population}
+seventeen.population <- ggplot(seventeen, aes(x = Week, y = Adults, colour = Treat, shape = Treat, fill = Treat)) +
+  geom_rect(aes(xmin = 5.5, xmax = Inf, ymin = -Inf, ymax = Inf),
+            fill = "#FFF1E6", alpha = 0.4, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = 5.5, xmax = 6.5, ymin = -Inf, ymax = Inf),
+            fill = "#FFE2CC", alpha = 0.2, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = 4.5, xmax = 5.5, ymin = -Inf, ymax = Inf),
+            fill = "#FFD4B3", alpha = 0.4, inherit.aes = FALSE) +
+  geom_smooth(aes(x = Week, y = Adults, colour = Treat),
+              method = "glm.nb", formula = y ~ poly(x, 3), se = F, linewidth = 0.75, lty = "dashed") +
+  stat_summary(fun = "mean", geom = "point", size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = mean.AO - se.AO, ymax = mean.AO + se.AO), 
+                width = 0.2, position = position_dodge(width = 0.4)) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21, 24), labels = c("constant", "heatwave")) +  
+  scale_colour_manual(values = c("#999999", "#D55E00"), labels = c("constant", "heatwave")) +
+  scale_fill_manual(values = c("#999999", "#D55E00"), labels = c("constant", "heatwave")) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  scale_y_continuous(position = "right") +
+  scale_x_continuous(breaks = seq(1, 9, 1)) +
+  coord_cartesian(ylim = c(0, 800)) 
+
+seventeen.population
+
+ggsave("seventeen.population.png", width = 8, height = 6)
+```
+```{r twenty population}
+twenty.population <- ggplot(twenty, aes(x = Week, y = Adults, colour = Treat, shape = Treat, fill = Treat)) +
+  # Add shaded region from Week 5 onward
+  geom_rect(aes(xmin = 5.5, xmax = Inf, ymin = -Inf, ymax = Inf),
+            fill = "#E6F6FF", alpha = 0.4, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = 5.5, xmax = 6.5, ymin = -Inf, ymax = Inf),
+            fill = "#CCECFF", alpha = 0.2, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = 4.5, xmax = 5.5, ymin = -Inf, ymax = Inf),
+            fill = "#B3E3FF", alpha = 0.4, inherit.aes = FALSE) +
+  geom_smooth(aes(x = Week, y = Adults, colour = Treat),
+              method = "glm.nb", formula = y ~ poly(x, 3), se = F, linewidth = 0.75, lty = "dashed") +
+  stat_summary(fun = "mean", geom = "point", size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = mean.AO - se.AO, ymax = mean.AO + se.AO), 
+                width = 0.2, position = position_dodge(width = 0.4)) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill = NA, size = 1)) +
+  scale_shape_manual(values = c(21, 25)) +  
+  scale_colour_manual(values = c("#999999", "#0072B2")) +
+  scale_fill_manual(values = c("#999999", "#0072B2")) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  scale_x_continuous(breaks = seq(1, 9, 1)) +
+  coord_cartesian(ylim = c(0, 800))
+
+twenty.population
+
+ggsave("twenty.population.png", width = 8, height = 6)
+```
+```{r twenty three population}
+twentythree.population <- ggplot(twentythree, aes(x = Week, y = Adults, colour = Treat, shape = Treat, fill = Treat)) +
+  geom_rect(aes(xmin = 5.5, xmax = Inf, ymin = -Inf, ymax = Inf),
+            fill = "#E6F6FF", alpha = 0.4, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = 5.5, xmax = 6.5, ymin = -Inf, ymax = Inf),
+            fill = "#CCECFF", alpha = 0.2, inherit.aes = FALSE) +
+  geom_rect(aes(xmin = 4.5, xmax = 5.5, ymin = -Inf, ymax = Inf),
+            fill = "#B3E3FF", alpha = 0.4, inherit.aes = FALSE) +
+  geom_smooth(aes(x = Week, y = Adults, colour = Treat),
+              method = "glm.nb", formula = y ~ poly(x, 3), se = F, linewidth = 0.75, lty = "dashed") +
+  stat_summary(fun = "mean", geom = "point", size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = mean.AO - se.AO, ymax = mean.AO + se.AO), 
+                width = 0.2, position = position_dodge(width = 0.4)) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21,25)) +  
+  scale_colour_manual(values = c("#999999", "#0072B2")) +
+  scale_fill_manual(values = c("#999999", "#0072B2")) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  scale_y_continuous(position = "right") +
+  scale_x_continuous(breaks=seq(1,9,1)) +
+  coord_cartesian(ylim = c(0, 800))
+
+twentythree.population
+
+ggsave("twentythree.population.png", width = 8, height = 6)
+```
+
+###Compare to Individual Experiments
+
+```{r Import data eet}
+compare <- read.csv("Exp_comp.csv", header = TRUE, stringsAsFactors = FALSE)
+```
+```{r Set variables}
+compare$Exp <- as.character(compare$Exp)
+compare$Period <- as.factor(compare$Period)
+compare$A_Temp <- as.factor(compare$A_Temp)
+compare$Real_Avg <- as.numeric(compare$Real_Avg)
+compare$Treat <- as.factor(compare$Treat)
+compare$Spores <- as.numeric(compare$Spores)
+compare$Exposed <- as.numeric(compare$Exposed)
+```
+```{r Centre average temperature}
+# Centering the 'Real_Avg' variable
+compare$Real_Avg_Cent <- scale(compare$Real_Avg, center = TRUE, scale = FALSE)
+compare$Real_Avg_Cent <- as.numeric(compare$Real_Avg_Cent)
+```
+```{r Specifying order of factors}
+compare$Period <- factor(compare$Period, levels = c("C","D","JA","A"))
+```
+```{r Adding Standard Errors for Overall trends}
+compare <- compare %>%
+  group_by(Exp, A_Temp, Treat, Period) %>% 
+  mutate(
+    # Calculations for Burden overall
+    mean.BO = mean(Spores, na.rm = TRUE),
+    sd.BO = sd(Spores, na.rm = TRUE),
+    se.BO = sd.BO / sqrt(sum(!is.na(Spores))),  # Use sum(!is.na()) to count non-NA values
+
+    # Calculations for Exposure overall
+    mean.EO = mean(Exposed, na.rm = TRUE),
+    sd.EO = sd(Exposed, na.rm = TRUE),
+    se.EO = sd.EO / sqrt(sum(!is.na(Exposed)))  # Use sum(!is.na()) to count non-NA values
+  ) %>%
+  ungroup()
+```
+
+```{r Subset by temperature for graphing during only}
+fourteen.pop.dur <- subset(compare, A_Temp == "14" & Exp == "POP" & Period %in% c("C","D")) 
+fourteen.ind.dur <- subset(compare, A_Temp == "14" & Exp == "HW" & Period %in% c("C","D")) 
+seventeen.pop.dur <- subset(compare, A_Temp == "17" & Exp == "POP" & Period %in% c("C","D")) 
+seventeen.ind.dur <- subset(compare, A_Temp == "17" & Exp == "HW" & Period %in% c("C","D")) 
+twenty.pop.dur <- subset(compare, A_Temp == "20" & Exp == "POP" & Period %in% c("C","D")) 
+twenty.ind.dur <- subset(compare, A_Temp == "20" & Exp == "CS" & Period %in% c("C","D")) 
+twentythree.pop.dur <-subset(compare, A_Temp == "23" & Exp == "POP" & Period %in% c("C","D")) 
+twentythree.ind.dur <-subset(compare, A_Temp == "23" & Exp == "CS" & Period %in% c("C","D")) 
+```
+
+```{r For making legends}
+fourteen.pop.legend <- ggplot(fourteen.pop.dur, aes(x = Period, y = Exposed, colour = Period)) +
+  stat_summary(fun = "mean", geom = "point", size = 3.5) +
+  geom_errorbar(aes(ymin = mean.EO - se.EO, ymax = mean.EO + se.EO, colour = Period), width = 0.2) + 
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  scale_colour_manual(values = c("#999999", "#D55E00"), 
+                      name = "Treatment",  # Legend title
+                      labels = c("Constant", "Heatwave")) +  # Custom legend labels
+  scale_fill_manual(values = c("#999999", "#D55E00"), 
+                    name = "Treatment", 
+                    labels = c("Constant", "Heatwave")) +  
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  theme(axis.text = element_text(size = 18), 
+        legend.position = "top",  # Move legend above panel
+        legend.justification = "center",
+        legend.text = element_text(size = 16),  # Bigger legend text
+        legend.title = element_text(size = 18)) + # Bigger legend title
+  coord_cartesian(ylim = c(0, 1500))
+
+fourteen.pop.legend
+```
+
+```{r fourteen population during only}
+fourteen.pop.dur.sp <- ggplot(fourteen.pop.dur, aes(x = Period, y = Exposed, colour = Period)) +
+  stat_summary(fun = "mean", geom = "point", size = 3.5) +
+  geom_errorbar(aes(ymin = mean.EO - se.EO, ymax =  mean.EO + se.EO), width = 0.2) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  scale_colour_manual(values = c("#999999", "#D55E00")) +
+  scale_fill_manual(values = c("#999999", "#D55E00")) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  coord_cartesian(ylim = c(0, 1500))
+
+fourteen.pop.dur.sp
+
+ggsave("fourteen.pop.dur.sp.png", width = 4, height = 6)
+```
+```{r fourteen individual during only}
+fourteen.ind.dur.sp <- ggplot(fourteen.ind.dur, aes(x = Period, y = Exposed, colour = Period)) +
+  stat_summary(fun = "mean", geom = "point", size = 3.5) +
+  geom_errorbar(aes(ymin = mean.EO - se.EO, ymax =  mean.EO + se.EO), width = 0.2) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  scale_colour_manual(values = c("#999999", "#D55E00")) +
+  scale_fill_manual(values = c("#999999", "#D55E00")) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  scale_y_continuous(position = "right") +
+  guides(color = "none") +
+  coord_cartesian(ylim = c(0, 1500))
+
+fourteen.ind.dur.sp
+
+ggsave("fourteen.pop.ind.sp.png", width = 4, height = 6)
+```
+```{r seventeen population during only}
+seventeen.pop.dur.sp <- ggplot(seventeen.pop.dur, aes(x = Period, y = Exposed, colour = Period)) +
+  stat_summary(fun = "mean", geom = "point", size = 3.5) +
+  geom_errorbar(aes(ymin = mean.EO - se.EO, ymax =  mean.EO + se.EO), width = 0.2) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  scale_colour_manual(values = c("#999999", "#D55E00")) +
+  scale_fill_manual(values = c("#999999", "#D55E00")) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  coord_cartesian(ylim = c(0, 1500))
+
+seventeen.pop.dur.sp
+
+ggsave("seventeen.pop.dur.sp.png", width = 4, height = 6)
+```
+```{r seventeen individual during only}
+seventeen.ind.dur.sp <- ggplot(seventeen.ind.dur, aes(x = Period, y = Exposed, colour = Period)) +
+  stat_summary(fun = "mean", geom = "point", size = 3.5) +
+  geom_errorbar(aes(ymin = mean.EO - se.EO, ymax =  mean.EO + se.EO), width = 0.2) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  scale_colour_manual(values = c("#999999", "#D55E00")) +
+  scale_fill_manual(values = c("#999999", "#D55E00")) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  scale_y_continuous(position = "right") +
+  coord_cartesian(ylim = c(0, 1500))
+
+seventeen.ind.dur.sp
+
+ggsave("seventeen.ind.dur.sp.png", width = 4, height = 6)
+```
+```{r twenty population during only}
+twenty.pop.dur.sp <- ggplot(twenty.pop.dur, aes(x = Period, y = Exposed, colour = Period)) +
+  stat_summary(fun = "mean", geom = "point", size = 3.5) +
+  geom_errorbar(aes(ymin = mean.EO - se.EO, ymax =  mean.EO + se.EO), width = 0.2) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  scale_colour_manual(values = c("#999999", "#0072B2")) +
+  scale_fill_manual(values = c("#999999", "#0072B2")) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  coord_cartesian(ylim = c(0, 1500))
+
+twenty.pop.dur.sp
+
+ggsave("twenty.pop.dur.sp.png", width = 4, height = 6)
+```
+```{r twenty individual during only}
+twenty.ind.dur.sp <- ggplot(twenty.ind.dur, aes(x = Period, y = Exposed, colour = Period)) +
+  stat_summary(fun = "mean", geom = "point", size = 3.5) +
+  geom_errorbar(aes(ymin = mean.EO - se.EO, ymax =  mean.EO + se.EO), width = 0.2) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  scale_colour_manual(values = c("#999999", "#0072B2")) +
+  scale_fill_manual(values = c("#999999", "#0072B2")) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  scale_y_continuous(position = "right") +
+  coord_cartesian(ylim = c(0, 1500))
+
+twenty.ind.dur.sp
+
+ggsave("twenty.ind.dur.sp.png", width = 4, height = 6)
+```
+```{r twenty three population during only}
+twentythree.pop.dur.sp <- ggplot(twentythree.pop.dur, aes(x = Period, y = Exposed, colour = Period)) +
+  stat_summary(fun = "mean", geom = "point", size = 3.5) +
+  geom_errorbar(aes(ymin = mean.EO - se.EO, ymax =  mean.EO + se.EO), width = 0.2) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  scale_colour_manual(values = c("#999999", "#0072B2")) +
+  scale_fill_manual(values = c("#999999", "#0072B2")) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  coord_cartesian(ylim = c(0, 1500))
+
+twentythree.pop.dur.sp
+
+ggsave("twentythree.pop.dur.sp.png", width = 4, height = 6)
+```
+```{r twenty three individual during only}
+twentythree.ind.dur.sp <- ggplot(twentythree.ind.dur, aes(x = Period, y = Exposed, colour = Period)) +
+  stat_summary(fun = "mean", geom = "point", size = 3.5) +
+  geom_errorbar(aes(ymin = mean.EO - se.EO, ymax =  mean.EO + se.EO), width = 0.2) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  scale_colour_manual(values = c("#999999", "#0072B2")) +
+  scale_fill_manual(values = c("#999999", "#0072B2")) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  scale_y_continuous(position = "right") +
+  coord_cartesian(ylim = c(0, 1500))
+
+twentythree.ind.dur.sp
+
+ggsave("twentythree.ind.dur.sp.png", width = 4, height = 6)
+```
+
+Custom Contrasts:
+
+```{r Make new treatment column}
+compare$Treatment <- with(compare, paste(Exp, A_Temp, Treat, Period, sep = "_"))
+```
+
+```{r Compare during emmeans}
+during <- subset(compare, Period %in% c("C","D")) 
+
+#Model used 
+during.posthoc <- glm.nb(Spores ~ Treatment, data = during)
+
+during.emmeans <- emmeans(during.posthoc, ~ Treatment, data = during)
+during.emmeans
+```
+```{r Compare during matrix}
+  "CS_20_C_C"   = c(1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  "CS_20_CS_D"  = c(0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  "CS_23_C_C"   = c(0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0)
+  "CS_23_CS_D"  = c(0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0)
+  "HW_14_C_C"   = c(0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0)
+  "HW_14_HW_D"  = c(0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0)
+  "HW_17_C_C"   = c(0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0)
+  "HW_17_HW_D"  = c(0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0)
+  "POP_14_C_C"  = c(0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0)
+  "POP_14_HW_D" = c(0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0)
+  "POP_17_C_C"  = c(0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0)
+  "POP_17_HW_D" = c(0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0)
+  "POP_20_C_C"  = c(0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0)
+  "POP_20_CS_D" = c(0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0)
+  "POP_23_C_C"  = c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0)
+  "POP_23_CS_D" = c(0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1)
+```
+```{r Compare during custom contrast}
+contrast( 
+  during.emmeans, adjust = "BH", method = list(
+  "14P.D VS 14P.C"   = POP_14_HW_D - POP_14_C_C,
+  "14I.D VS 14I.C"   = HW_14_HW_D - HW_14_C_C,
+  "17P.D VS 17P.C"   = POP_17_HW_D - POP_17_C_C,
+  "17I.D VS 17I.C"   = HW_17_HW_D - HW_17_C_C,
+  "20P.D VS 20P.C"   = POP_20_CS_D - POP_20_C_C,
+  "20I.D VS 20I.C"   = CS_20_CS_D - CS_20_C_C,
+  "23P.D VS 23P.C"   = POP_23_CS_D - POP_23_C_C,
+  "23I.D VS 23I.C"   = CS_23_CS_D - CS_23_C_C))
+```
+```{r Compare during everything custom contrast}
+contrast( 
+  during.emmeans, adjust = "BH", method = list(
+  "14P.D VS 14P.C"   = POP_14_HW_D - POP_14_C_C,
+  "14I.D VS 14I.C"   = HW_14_HW_D - HW_14_C_C,
+  "14P.D VS 14I.D"   = POP_14_HW_D - HW_14_HW_D,
+  "14P.C VS 14I.C"   = POP_14_C_C - HW_14_C_C,
+  
+  "17P.D VS 17P.C"   = POP_17_HW_D - POP_17_C_C,
+  "17I.D VS 17I.C"   = HW_17_HW_D - HW_17_C_C,
+  "17P.D VS 17I.D"   = POP_17_HW_D - HW_17_HW_D,
+  "17P.C VS 17I.C"   = POP_17_C_C - HW_17_C_C,
+ 
+  "20P.D VS 20P.C"   = POP_20_CS_D - POP_20_C_C,
+  "20I.D VS 20I.C"   = CS_20_CS_D - CS_20_C_C,
+  "20P.D VS 20I.D"   = POP_20_CS_D - CS_20_CS_D,
+  "20P.C VS 20I.C"   = POP_20_C_C - CS_20_C_C,
+ 
+  "23P.D VS 23P.C"   = POP_23_CS_D - POP_23_C_C,
+  "23I.D VS 23I.C"   = CS_23_CS_D - CS_23_C_C,
+  "23P.D VS 23I.D"   = POP_23_CS_D - CS_23_CS_D,
+  "23P.C VS 23I.C"   = POP_23_C_C - CS_23_C_C))
+```
