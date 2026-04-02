@@ -118,7 +118,8 @@ Anova(cs_burden, type = "II")
 ###Temperature Specific Burden Models 
 
 ```{r Fourteen burden}
-fourteen_burden <- glmmTMB(Spores ~ PulsevControl * Time_Period + Adults + (1|Bucket), 
+fourteen_burden <- glmmTMB(Spores ~ PulsevControl * Time_Period + Adults + 
+                                    (1|Bucket),
                  data = fourteen, 
                  family = nbinom12)
 
@@ -128,7 +129,8 @@ summary(fourteen_burden)
 Anova(fourteen_burden, type = "II")
 ```
 ```{r Seventeen burden}
-seventeen_burden <- glmmTMB(Spores ~ PulsevControl * Time_Period + Adults + (1|Bucket), 
+seventeen_burden <- glmmTMB(Spores ~ PulsevControl * Time_Period + Adults + 
+                                    (1|Bucket),
                  data = seventeen, 
                  family = nbinom12)
 
@@ -140,7 +142,8 @@ Anova(seventeen_burden, type = "II")
 ####high variance at 17 between buckets might be why it shows weird figures
 ```
 ```{r Twenty burden}
-twenty_burden <- glmmTMB(Spores ~ PulsevControl * Time_Period + Adults + (1|Bucket), 
+twenty_burden <- glmmTMB(Spores ~ PulsevControl * Time_Period + Adults + 
+                                  (1|Bucket),
                  data = twenty, 
                  family = nbinom2)
 
@@ -150,7 +153,8 @@ summary(twenty_burden)
 Anova(twenty_burden, type = "II")
 ```
 ```{r Twenty three burden}
-twentythree_burden <- glmmTMB(Spores ~ PulsevControl * Time_Period + Adults + (1|Bucket), 
+twentythree_burden <- glmmTMB(Spores ~ PulsevControl * Time_Period + Adults + 
+                                       (1|Bucket),
                  data = twentythree, 
                  family = nbinom12)
 
@@ -175,8 +179,10 @@ PA  = c(0,0,0,0,0,0,0,1)
 
 ```{r Quick Check to make sure they match up}
 emmeans(fourteen_burden, ~ PulsevControl * Time_Period)
+emmeans(seventeen_burden, ~ PulsevControl * Time_Period)
+emmeans(twenty_burden, ~ PulsevControl * Time_Period)
+emmeans(twentythree_burden, ~ PulsevControl * Time_Period)
 ```
-
 
 ```{r}
 burden_contrasts <- list(
@@ -329,6 +335,97 @@ twentythree.burden
 ggsave("twentythree.burden.png", width = 8, height = 6)
 ```
 
+###Modelling Population vs Burden 
+
+```{r Add weekly adults to remove NAs}
+# First create weekly average adults per bucket
+adults_weekly <- pop %>%
+  group_by(Bucket, Week) %>%
+  summarise(Avg_Adults = mean(Adults, na.rm = TRUE),
+            .groups = "drop")
+
+# Then join back to the full dataset
+pop_filled <- pop %>%
+  left_join(adults_weekly, by = c("Bucket", "Week"))
+
+# Create temperature-specific filled datasets
+fourteen_filled <- pop_filled %>% filter(A_Temp == "14")
+seventeen_filled <- pop_filled %>% filter(A_Temp == "17")
+twenty_filled <- pop_filled %>% filter(A_Temp == "20")
+twentythree_filled <- pop_filled %>% filter(A_Temp == "23")
+```
+
+```{r Density dependence model}
+dd_all <- glmmTMB(Spores ~ Avg_Adults * Week * poly(Temp_Cent, 2) + (1|Bucket),
+                  data = pop_filled,
+                  family = nbinom12)
+summary(dd_all)
+
+Anova(dd_all, type = "II")
+```
+
+```{r Temperature density dependence}
+# Then run separate models with Avg_Adults
+dd_fourteen   <- glm.nb(Spores ~ Avg_Adults * Week, data = fourteen_filled)
+summary(dd_fourteen)
+
+dd_seventeen  <- glm.nb(Spores ~ Avg_Adults * Week, data = seventeen_filled)
+summary(dd_seventeen)
+
+dd_twenty     <- glm.nb(Spores ~ Avg_Adults * Week, data = twenty_filled)
+summary(dd_twenty)
+
+dd_twentythree <- glm.nb(Spores ~ Avg_Adults * Week, data = twentythree_filled)
+summary(dd_twentythree)
+```
+
+constants only 
+
+```{r Add weekly adults to remove NAs}
+
+pop.con <- subset(pop, PulsevControl == "C")
+
+# First create weekly average adults per bucket
+adults_weekly.con <- pop.con %>%
+  group_by(Bucket, Week) %>%
+  summarise(Avg_Adults = mean(Adults, na.rm = TRUE),
+            .groups = "drop")
+
+# Then join back to the full dataset
+pop_filled.con <- pop.con %>%
+  left_join(adults_weekly, by = c("Bucket", "Week"))
+
+# Create temperature-specific filled datasets
+fourteen_filled.con <- pop_filled.con %>% filter(A_Temp == "14")
+seventeen_filled.con <- pop_filled.con %>% filter(A_Temp == "17")
+twenty_filled.con <- pop_filled.con %>% filter(A_Temp == "20")
+twentythree_filled.con <- pop_filled.con %>% filter(A_Temp == "23")
+```
+
+```{r Density dependence model}
+dd_all.con <- glmmTMB(Spores ~ Avg_Adults * Week * poly(Temp_Cent, 2) + (1|Bucket),
+                  data = pop_filled,
+                  family = nbinom12)
+summary(dd_all.con)
+
+Anova(dd_all.con, type = "II")
+```
+
+```{r Temperature density dependence}
+# Then run separate models with Avg_Adults
+dd_fourteen.con    <- glm.nb(Spores ~ Avg_Adults * Week, data = fourteen_filled.con)
+summary(dd_fourteen.con)
+
+dd_seventeen.con   <- glm.nb(Spores ~ Avg_Adults * Week, data = seventeen_filled.con)
+summary(dd_seventeen.con)
+
+dd_twenty.con      <- glm.nb(Spores ~ Avg_Adults * Week, data = twenty_filled.con)
+summary(dd_twenty.con)
+
+dd_twentythree.con <- glm.nb(Spores ~ Avg_Adults * Week, data = twentythree_filled.con)
+summary(dd_twentythree.con)
+```
+
 ###Graphing Population vs Burden
 
 ```{r subsetting for means by treatment}
@@ -368,12 +465,13 @@ twentythree.week.combo <- twentythree %>%
 ```
 
 ```{r fourteen population vs burden combined}
-fourteen.pvb.combo <- ggplot(fourteen.week.combo, aes(x = Avg_Adults, y = Mean_Spores)) +
+fourteen.pvb.combo <- ggplot(fourteen.week.combo, aes(x = Avg_Adults, y = Mean_Spores, color = factor(Week))) +
   geom_point(size = 3, position = position_dodge(width = 0.4)) +
   geom_errorbar(aes(ymin = Mean_Spores - SE_Spores, ymax = Mean_Spores + SE_Spores), 
                 width = 0.2, linewidth = 0.6, position = position_dodge(width = 0.4)) +
   geom_smooth(method = "glm", formula = y ~ poly(x, 2, raw = TRUE), 
-              se = FALSE, linetype = "dashed", linewidth = 0.75) +
+              se = FALSE, linetype = "dashed", linewidth = 0.75, 
+              color = "black", group = 1) +
   theme(axis.title.x = element_blank(),
         axis.title.y = element_blank()) +
   theme(panel.background = element_blank(),
@@ -381,21 +479,24 @@ fourteen.pvb.combo <- ggplot(fourteen.week.combo, aes(x = Avg_Adults, y = Mean_S
         panel.grid.minor = element_blank()) +
   theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
   scale_shape_manual(values = c(21,24)) +
-  theme(axis.text = element_text(size = 18), legend.position = "none") +
-  guides(color = "none") +
-  coord_cartesian(xlim = c(300,600), ylim = c(0,800))
+  theme(axis.text = element_text(size = 18), 
+        legend.position = "none") +
+  scale_y_continuous(position = "left") +
+  labs(color = "Week") +
+  coord_cartesian(xlim = c(300,700), ylim = c(0,800))
 
 fourteen.pvb.combo
 
-ggsave("fourteen.pvb.combo.png", width = 8, height = 6)
+ggsave("Graphs/fourteen.pvb.combo.png", width = 8, height = 6)
 ```
 ```{r seventeen population vs burden combined}
-seventeen.pvb.combo <- ggplot(seventeen.week.combo, aes(x = Avg_Adults, y = Mean_Spores)) +
+seventeen.pvb.combo <- ggplot(seventeen.week.combo, aes(x = Avg_Adults, y = Mean_Spores, color = factor(Week))) +
   geom_point(size = 3, position = position_dodge(width = 0.4)) +
   geom_errorbar(aes(ymin = Mean_Spores - SE_Spores, ymax = Mean_Spores + SE_Spores), 
                 width = 0.2, linewidth = 0.6, position = position_dodge(width = 0.4)) +
   geom_smooth(method = "glm", formula = y ~ poly(x, 2, raw = TRUE), 
-              se = FALSE, linetype = "dashed", linewidth = 0.75) +
+              se = FALSE, linetype = "dashed", linewidth = 0.75, 
+              color = "black", group = 1) +
   theme(axis.title.x = element_blank(),
         axis.title.y = element_blank()) +
   theme(panel.background = element_blank(),
@@ -403,22 +504,24 @@ seventeen.pvb.combo <- ggplot(seventeen.week.combo, aes(x = Avg_Adults, y = Mean
         panel.grid.minor = element_blank()) +
   theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
   scale_shape_manual(values = c(21,24)) +
-  theme(axis.text = element_text(size = 18), legend.position = "none") +
-  guides(color = "none") +
+  theme(axis.text = element_text(size = 18), 
+        legend.position = "none") +
   scale_y_continuous(position = "right") +
-  coord_cartesian(xlim = c(300,600), ylim = c(0,800))
+  labs(color = "Week") +
+  coord_cartesian(xlim = c(300,700), ylim = c(0,800))
 
 seventeen.pvb.combo
 
-ggsave("seventeen.pvb.combo.png", width = 8, height = 6)
+ggsave("Graphs/seventeen.pvb.combo.png", width = 8, height = 6)
 ```
 ```{r twenty population vs burden combined}
-twenty.pvb.combo <- ggplot(twenty.week.combo, aes(x = Avg_Adults, y = Mean_Spores)) +
+twenty.pvb.combo <- ggplot(twenty.week.combo, aes(x = Avg_Adults, y = Mean_Spores, color = factor(Week))) +
   geom_point(size = 3, position = position_dodge(width = 0.4)) +
   geom_errorbar(aes(ymin = Mean_Spores - SE_Spores, ymax = Mean_Spores + SE_Spores), 
                 width = 0.2, linewidth = 0.6, position = position_dodge(width = 0.4)) +
   geom_smooth(method = "glm", formula = y ~ poly(x, 2, raw = TRUE), 
-              se = FALSE, linetype = "dashed", linewidth = 0.75) +
+              se = FALSE, linetype = "dashed", linewidth = 0.75, 
+              color = "black", group = 1) +
   theme(axis.title.x = element_blank(),
         axis.title.y = element_blank()) +
   theme(panel.background = element_blank(),
@@ -426,21 +529,125 @@ twenty.pvb.combo <- ggplot(twenty.week.combo, aes(x = Avg_Adults, y = Mean_Spore
         panel.grid.minor = element_blank()) +
   theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
   scale_shape_manual(values = c(21,24)) +
-  theme(axis.text = element_text(size = 18), legend.position = "none") +
-  guides(color = "none") +
-  coord_cartesian(xlim = c(300,600), ylim = c(0,800))
+  theme(axis.text = element_text(size = 18), 
+        legend.position = "none") +
+  scale_y_continuous(position = "left") +
+  labs(color = "Week") +
+  coord_cartesian(xlim = c(300,700), ylim = c(0,800))
 
 twenty.pvb.combo
 
-ggsave("twenty.pvb.combo.png", width = 8, height = 6)
+ggsave("Graphs/twenty.pvb.combo.png", width = 8, height = 6)
 ```
 ```{r twenty three population vs burden combined}
-twentythree.pvb.combo <- ggplot(twentythree.week.combo, aes(x = Avg_Adults, y = Mean_Spores)) +
+twentythree.pvb.combo <- ggplot(twentythree.week.combo, aes(x = Avg_Adults, y = Mean_Spores, color = factor(Week))) +
   geom_point(size = 3, position = position_dodge(width = 0.4)) +
   geom_errorbar(aes(ymin = Mean_Spores - SE_Spores, ymax = Mean_Spores + SE_Spores), 
                 width = 0.2, linewidth = 0.6, position = position_dodge(width = 0.4)) +
   geom_smooth(method = "glm", formula = y ~ poly(x, 2, raw = TRUE), 
-              se = FALSE, linetype = "dashed", linewidth = 0.75) +
+              se = FALSE, linetype = "dashed", linewidth = 0.75, 
+              color = "black", group = 1) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21,24)) +
+  theme(axis.text = element_text(size = 18), 
+        legend.position = "none") +
+  scale_y_continuous(position = "right") +
+  labs(color = "Week") +
+  coord_cartesian(xlim = c(300,700), ylim = c(0,800))
+
+twentythree.pvb.combo
+
+ggsave("Graphs/twentythree.pvb.combo.png", width = 8, height = 6)
+```
+
+constants only
+
+```{r subsetting for means by treatment}
+fourteen.con <- subset(pop, PulsevControl == "C" & A_Temp == "14")
+seventeen.con <- subset(pop, PulsevControl == "C" & A_Temp == "17")
+twenty.con <- subset(pop, PulsevControl == "C" & A_Temp == "20")
+twentythree.con <- subset(pop, PulsevControl == "C" & A_Temp == "23")
+
+fourteen.week.combo.con <- fourteen.con %>%
+  group_by(Week) %>%
+  summarise(Avg_Adults = mean(Adults, na.rm = TRUE),
+            Mean_Spores = mean(Spores, na.rm = TRUE),
+            SE_Spores = sd(Spores, na.rm = TRUE) / sqrt(n()),
+            SE_Adults = sd(Adults, na.rm = TRUE) / sqrt(n()),# standard error
+            .groups = "drop")
+
+seventeen.week.combo.con <- seventeen.con %>%
+  group_by(Week) %>%
+  summarise(Avg_Adults = mean(Adults, na.rm = TRUE),
+            Mean_Spores = mean(Spores, na.rm = TRUE),
+            SE_Spores = sd(Spores, na.rm = TRUE) / sqrt(n()),
+            SE_Adults = sd(Adults, na.rm = TRUE) / sqrt(n()),# standard error
+            .groups = "drop")
+
+twenty.week.combo.con <- twenty.con %>%
+  group_by(Week) %>%
+  summarise(Avg_Adults = mean(Adults, na.rm = TRUE),
+            Mean_Spores = mean(Spores, na.rm = TRUE),
+            SE_Spores = sd(Spores, na.rm = TRUE) / sqrt(n()),
+            SE_Adults = sd(Adults, na.rm = TRUE) / sqrt(n()),# standard error
+            .groups = "drop")
+
+# Aggregate to mean adults per day-treatment
+twentythree.week.combo.con <- twentythree.con %>%
+  group_by(Week) %>%
+  summarise(Avg_Adults = mean(Adults, na.rm = TRUE),
+            Mean_Spores = mean(Spores, na.rm = TRUE),
+            SE_Spores = sd(Spores, na.rm = TRUE) / sqrt(n()),
+            SE_Adults = sd(Adults, na.rm = TRUE) / sqrt(n()),# standard error
+            .groups = "drop")
+
+```
+
+  theme(axis.text = element_text(size = 18), 
+        legend.position = "top",
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16)) +
+  guides(color = guide_legend(nrow = 1)) +
+
+```{r fourteen population vs burden combined}
+set.seed(42)
+fourteen.pvb.combo.con <- ggplot(fourteen.week.combo.con, aes(x = Avg_Adults, y = Mean_Spores, color = factor(Week))) +
+  geom_point(size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = Mean_Spores - SE_Spores, ymax = Mean_Spores + SE_Spores), 
+                width = 0.2, linewidth = 0.6, position = position_dodge(width = 0.4)) +
+  geom_smooth(method = "glm", formula = y ~ poly(x, 2, raw = TRUE), 
+              se = FALSE, linetype = "dashed", linewidth = 0.75, 
+              color = "black", group = 1) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21,24)) +
+  theme(axis.text = element_text(size = 18), 
+        legend.position = "none") +
+  scale_y_continuous(position = "left") +
+  labs(color = "Week") +
+  coord_cartesian(xlim = c(300,700), ylim = c(0,800))
+
+fourteen.pvb.combo.con
+
+ggsave("Graphs/fourteen.pvb.combo.con.png", width = 8, height = 6)
+```
+```{r seventeen population vs burden combined}
+seventeen.pvb.combo.con <- ggplot(seventeen.week.combo.con, aes(x = Avg_Adults, y = Mean_Spores, color = factor(Week))) +
+  geom_point(size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = Mean_Spores - SE_Spores, ymax = Mean_Spores + SE_Spores), 
+                width = 0.2, linewidth = 0.6, position = position_dodge(width = 0.4)) +
+  geom_smooth(method = "glm", formula = y ~ poly(x, 2, raw = TRUE), 
+              se = FALSE, linetype = "dashed", linewidth = 0.75, 
+              color = "black", group = 1) +
   theme(axis.title.x = element_blank(),
         axis.title.y = element_blank()) +
   theme(panel.background = element_blank(),
@@ -451,12 +658,209 @@ twentythree.pvb.combo <- ggplot(twentythree.week.combo, aes(x = Avg_Adults, y = 
   theme(axis.text = element_text(size = 18), legend.position = "none") +
   guides(color = "none") +
   scale_y_continuous(position = "right") +
-  coord_cartesian(xlim = c(300,600), ylim = c(0,800))
+  coord_cartesian(xlim = c(300,700), ylim = c(0,800))
 
-twentythree.pvb.combo
+seventeen.pvb.combo.con
 
-ggsave("twentythree.pvb.combo.png", width = 8, height = 6)
+ggsave("Graphs/seventeen.pvb.combo.con.png", width = 8, height = 6)
 ```
+```{r twenty population vs burden combined}
+twenty.pvb.combo.con <- ggplot(twenty.week.combo.con, aes(x = Avg_Adults, y = Mean_Spores, color = factor(Week))) +
+  geom_point(size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = Mean_Spores - SE_Spores, ymax = Mean_Spores + SE_Spores), 
+                width = 0.2, linewidth = 0.6, position = position_dodge(width = 0.4)) +
+  geom_smooth(method = "glm", formula = y ~ poly(x, 2, raw = TRUE), 
+              se = FALSE, linetype = "dashed", linewidth = 0.75, 
+              color = "black", group = 1) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21,24)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  scale_y_continuous(position = "left") +
+  coord_cartesian(xlim = c(300,700), ylim = c(0,800))
+
+twenty.pvb.combo.con
+
+ggsave("Graphs/twenty.pvb.combo.con.png", width = 8, height = 6)
+```
+```{r twenty three population vs burden combined}
+twentythree.pvb.combo.con <- ggplot(twentythree.week.combo.con, aes(x = Avg_Adults, y = Mean_Spores, color = factor(Week))) +
+  geom_point(size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = Mean_Spores - SE_Spores, ymax = Mean_Spores + SE_Spores), 
+                width = 0.2, linewidth = 0.6, position = position_dodge(width = 0.4)) +
+  geom_smooth(method = "glm", formula = y ~ poly(x, 2, raw = TRUE), 
+              se = FALSE, linetype = "dashed", linewidth = 0.75, 
+              color = "black", group = 1) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21,24)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  scale_y_continuous(position = "right") +
+  coord_cartesian(xlim = c(300,700), ylim = c(0,800))
+
+twentythree.pvb.combo.con
+
+ggsave("Graphs/twentythree.pvb.combo.con.png", width = 8, height = 6)
+```
+
+pulse only
+
+```{r subsetting for means by treatment}
+fourteen.pul <- subset(pop, PulsevControl == "P" & A_Temp == "14")
+seventeen.pul <- subset(pop, PulsevControl == "P" & A_Temp == "17")
+twenty.pul <- subset(pop, PulsevControl == "P" & A_Temp == "20")
+twentythree.pul <- subset(pop, PulsevControl == "P" & A_Temp == "23")
+
+fourteen.week.combo.pul <- fourteen.pul %>%
+  group_by(Week) %>%
+  summarise(Avg_Adults = mean(Adults, na.rm = TRUE),
+            Mean_Spores = mean(Spores, na.rm = TRUE),
+            SE_Spores = sd(Spores, na.rm = TRUE) / sqrt(n()),
+            SE_Adults = sd(Adults, na.rm = TRUE) / sqrt(n()),# standard error
+            .groups = "drop")
+
+seventeen.week.combo.pul <- seventeen.pul %>%
+  group_by(Week) %>%
+  summarise(Avg_Adults = mean(Adults, na.rm = TRUE),
+            Mean_Spores = mean(Spores, na.rm = TRUE),
+            SE_Spores = sd(Spores, na.rm = TRUE) / sqrt(n()),
+            SE_Adults = sd(Adults, na.rm = TRUE) / sqrt(n()),# standard error
+            .groups = "drop")
+
+twenty.week.combo.pul <- twenty.pul %>%
+  group_by(Week) %>%
+  summarise(Avg_Adults = mean(Adults, na.rm = TRUE),
+            Mean_Spores = mean(Spores, na.rm = TRUE),
+            SE_Spores = sd(Spores, na.rm = TRUE) / sqrt(n()),
+            SE_Adults = sd(Adults, na.rm = TRUE) / sqrt(n()),# standard error
+            .groups = "drop")
+
+# Aggregate to mean adults per day-treatment
+twentythree.week.combo.pul <- twentythree.pul %>%
+  group_by(Week) %>%
+  summarise(Avg_Adults = mean(Adults, na.rm = TRUE),
+            Mean_Spores = mean(Spores, na.rm = TRUE),
+            SE_Spores = sd(Spores, na.rm = TRUE) / sqrt(n()),
+            SE_Adults = sd(Adults, na.rm = TRUE) / sqrt(n()),# standard error
+            .groups = "drop")
+
+```
+
+  theme(axis.text = element_text(size = 18), 
+        legend.position = "top",
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16)) +
+  guides(color = guide_legend(nrow = 1)) +
+
+```{r fourteen population vs burden combined}
+set.seed(42)
+fourteen.pvb.combo.pul <- ggplot(fourteen.week.combo.pul, aes(x = Avg_Adults, y = Mean_Spores, color = factor(Week))) +
+  geom_point(size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = Mean_Spores - SE_Spores, ymax = Mean_Spores + SE_Spores), 
+                width = 0.2, linewidth = 0.6, position = position_dodge(width = 0.4)) +
+  geom_smooth(method = "glm", formula = y ~ poly(x, 2, raw = TRUE), 
+              se = FALSE, linetype = "dashed", linewidth = 0.75, 
+              color = "black", group = 1) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21,24)) +
+  theme(axis.text = element_text(size = 18), 
+        legend.position = "none") +
+  scale_y_continuous(position = "left") +
+  labs(color = "Week") +
+  coord_cartesian(xlim = c(300,700), ylim = c(0,800))
+
+fourteen.pvb.combo.pul
+
+ggsave("Graphs/fourteen.pvb.combo.pul.png", width = 8, height = 6)
+```
+```{r seventeen population vs burden combined}
+seventeen.pvb.combo.pul <- ggplot(seventeen.week.combo.pul, aes(x = Avg_Adults, y = Mean_Spores, color = factor(Week))) +
+  geom_point(size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = Mean_Spores - SE_Spores, ymax = Mean_Spores + SE_Spores), 
+                width = 0.2, linewidth = 0.6, position = position_dodge(width = 0.4)) +
+  geom_smooth(method = "glm", formula = y ~ poly(x, 2, raw = TRUE), 
+              se = FALSE, linetype = "dashed", linewidth = 0.75, 
+              color = "black", group = 1) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21,24)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  scale_y_continuous(position = "right") +
+  coord_cartesian(xlim = c(300,700), ylim = c(0,800))
+
+seventeen.pvb.combo.pul
+
+ggsave("Graphs/seventeen.pvb.combo.pul.png", width = 8, height = 6)
+```
+```{r twenty population vs burden combined}
+twenty.pvb.combo.pul <- ggplot(twenty.week.combo.pul, aes(x = Avg_Adults, y = Mean_Spores, color = factor(Week))) +
+  geom_point(size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = Mean_Spores - SE_Spores, ymax = Mean_Spores + SE_Spores), 
+                width = 0.2, linewidth = 0.6, position = position_dodge(width = 0.4)) +
+  geom_smooth(method = "glm", formula = y ~ poly(x, 2, raw = TRUE), 
+              se = FALSE, linetype = "dashed", linewidth = 0.75, 
+              color = "black", group = 1) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21,24)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  scale_y_continuous(position = "left") +
+  coord_cartesian(xlim = c(300,700), ylim = c(0,800))
+
+twenty.pvb.combo.pul
+
+ggsave("Graphs/twenty.pvb.combo.pul.png", width = 8, height = 6)
+```
+```{r twenty three population vs burden combined}
+twentythree.pvb.combo.pul <- ggplot(twentythree.week.combo.pul, aes(x = Avg_Adults, y = Mean_Spores, color = factor(Week))) +
+  geom_point(size = 3, position = position_dodge(width = 0.4)) +
+  geom_errorbar(aes(ymin = Mean_Spores - SE_Spores, ymax = Mean_Spores + SE_Spores), 
+                width = 0.2, linewidth = 0.6, position = position_dodge(width = 0.4)) +
+  geom_smooth(method = "glm", formula = y ~ poly(x, 2, raw = TRUE), 
+              se = FALSE, linetype = "dashed", linewidth = 0.75, 
+              color = "black", group = 1) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  theme(panel.background = element_blank(),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank()) +
+  theme(panel.border = element_rect(colour = "black", fill=NA, size=1)) +
+  scale_shape_manual(values = c(21,24)) +
+  theme(axis.text = element_text(size = 18), legend.position = "none") +
+  guides(color = "none") +
+  scale_y_continuous(position = "right") +
+  coord_cartesian(xlim = c(300,700), ylim = c(0,800))
+
+twentythree.pvb.combo.pul
+
+ggsave("Graphs/twentythree.pvb.combo.pul.png", width = 8, height = 6)
+```
+
 
 ###Population Size Model
 
@@ -542,8 +946,10 @@ PA  = c(0,0,0,0,0,0,0,1)
 
 ```{r Quick Check to make sure they match up}
 emmeans(fourteen_pop, ~ PulsevControl * Time_Period)
+emmeans(seventeen_pop, ~ PulsevControl * Time_Period)
+emmeans(twenty_pop, ~ PulsevControl * Time_Period)
+emmeans(twentythree_pop, ~ PulsevControl * Time_Period)
 ```
-
 
 ```{r}
 pop_contrasts <- list(
@@ -556,10 +962,10 @@ pop_contrasts <- list(
   "P_B vs P_A"   = PB - PA
 )
 
-contrast(emmeans(fourteen_burden,    ~ PulsevControl * Time_Period), method = pop_contrasts, adjust = "BH")
-contrast(emmeans(seventeen_burden,   ~ PulsevControl * Time_Period), method = pop_contrasts, adjust = "BH")
-contrast(emmeans(twenty_burden,      ~ PulsevControl * Time_Period), method = pop_contrasts, adjust = "BH")
-contrast(emmeans(twentythree_burden, ~ PulsevControl * Time_Period), method = pop_contrasts, adjust = "BH")
+contrast(emmeans(fourteen_pop,    ~ PulsevControl * Time_Period), method = pop_contrasts, adjust = "BH")
+contrast(emmeans(seventeen_pop,   ~ PulsevControl * Time_Period), method = pop_contrasts, adjust = "BH")
+contrast(emmeans(twenty_pop,      ~ PulsevControl * Time_Period), method = pop_contrasts, adjust = "BH")
+contrast(emmeans(twentythree_pop, ~ PulsevControl * Time_Period), method = pop_contrasts, adjust = "BH")
 ```
 
 ###Graphing Population
